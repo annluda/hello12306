@@ -332,7 +332,6 @@ class ChinaRailway:
             print('开售时间%s已过，进入刷票模式' % _start_time)
             self.refresh()
 
-        # TODO 如果距离开售时间较长，是否需要sleep?
         while now < _start_time:
             now = time.time()
 
