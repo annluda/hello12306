@@ -9,6 +9,7 @@ import urllib
 import json
 from lxml import etree
 
+import urls
 import settings
 import chrome
 from captcha.image import CaptchaImage
@@ -20,6 +21,7 @@ class ChinaRailway:
     def __init__(self):
         self.logger = get_logger()
         self.conf = settings
+        self.urls = urls
         self.session = requests.Session()
         self._set_cookies()
 
@@ -58,7 +60,7 @@ class ChinaRailway:
             return answer
         else:
             self.logger.warning('验证码 ×')
-            self.logger.warning('response:', response)
+            self.logger.warning(response)
             return False
 
     def login(self):
@@ -69,7 +71,6 @@ class ChinaRailway:
         while not captcha_answer:
             captcha_answer = self.check_captcha('login')
             if captcha_answer:
-                login_url = 'https://kyfw.12306.cn/passport/web/login'
                 form_data = {
                     'username': self.conf.username,
                     'password': self.conf.password,
@@ -77,7 +78,7 @@ class ChinaRailway:
                     'answer': captcha_answer
                 }
 
-                login_resp = self.session.post(login_url, data=form_data).json()
+                login_resp = self.session.post(self.urls.login, data=form_data).json()
                 if login_resp['result_code'] == 0:
                     if self._uamtk():
                         self.logger.info('登录 √')
@@ -87,13 +88,11 @@ class ChinaRailway:
                     self.logger.warning('登录 ×', login_resp)
 
     def _uamtk(self):
-        uamtk_url = 'https://kyfw.12306.cn/passport/web/auth/uamtk'
         data = {'appid': 'otn'}
-        uamtk_resp = self.session.post(uamtk_url, data=data).json()
+        uamtk_resp = self.session.post(self.urls.uamtk, data=data).json()
         if uamtk_resp['result_code'] == 0:
-            uamauthclient_url = 'https://kyfw.12306.cn/otn/uamauthclient'
             data = {'tk': uamtk_resp['newapptk']}
-            uamauthclient_resp = self.session.post(uamauthclient_url, data=data).json()
+            uamauthclient_resp = self.session.post(self.urls.uamauthclient, data=data).json()
             if uamauthclient_resp['result_code'] == 0:
                 return True
             else:
@@ -106,7 +105,6 @@ class ChinaRailway:
         """
         查询余票
         """
-        url = 'https://kyfw.12306.cn/otn/leftTicket/queryA'
         params = {
             'leftTicketDTO.train_date': self.conf.train_date,
             'leftTicketDTO.from_station': station_codes[self.conf.from_station],
@@ -114,16 +112,21 @@ class ChinaRailway:
             'purpose_codes': 'ADULT'
         }
 
-        response = self.session.get(url, params=params).json()
+        response = self.session.get(self.urls.queryA, params=params).json()
         result = response['data']['result']
 
-        # seat = [('O', '二等座', 30), ('1', '硬座', 29), ('3', '硬卧', 28), ('1', '无座', 26), ('M', '一等座', 31)]
-        seat = [('O', '二等座', 30)]
+        seat = [('O', '二等座', 30), ('1', '硬座', 29), ('3', '硬卧', 28), ('1', '无座', 26), ('M', '一等座', 31)]
+        train_type_letter = {'高铁': 'CG', '城际': 'CG', '动车': 'D', '直达': 'Z', '特快': 'T', '快速其他': 'K'}
+        selected_train_type = ''.join([train_type_letter[k] for k in self.conf.train_type])
+        selected_seat = [x for x in seat if x[1] in self.conf.seat_type]
         if result:
             for line in result:
                 info = line.split('|')
-                if info[1] == '预订':
-                    for seat_type, seat_type_cn, index in seat:
+                if (
+                        info[3][0] in selected_train_type
+                        and self.conf.start_time[0] < int(info[8][:2]) < self.conf.start_time[1]
+                ) or info[3] in self.conf.train_no:
+                    for seat_type, seat_type_cn, index in selected_seat:
                         if info[index] == '有' or info[index].isdigit():
                             ticket = {
                                 'station_train_code': info[3],
@@ -131,7 +134,9 @@ class ChinaRailway:
                                 'secret_str': info[0],
                                 'seat_type': seat_type
                             }
+                            self.logger.info('*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*')
                             self.logger.info('余票 √ (车次: %s, 席别: %s)' % (info[3], seat_type_cn))
+                            self.logger.info('*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*')
                             return ticket
         else:
             self.logger.warning('很抱歉，按您的查询条件，当前未找到从<%s>到><%s>的列车。'
@@ -141,8 +146,7 @@ class ChinaRailway:
         return
 
     def _get_passenger(self):
-        url = 'https://kyfw.12306.cn/otn/confirmPassenger/getPassengerDTOs'
-        resp = self.session.post(url, data={'_json_att': ''}).json()
+        resp = self.session.post(self.urls.getPassengerDTOs, data={'_json_att': ''}).json()
         if resp.get('data'):
             passengers = resp['data']['normal_passengers']
             for psg in passengers:
@@ -158,7 +162,6 @@ class ChinaRailway:
                     self._old_passenger_str = old_passenger_str
 
     def _submit_order(self, secret_str):
-        url = 'https://kyfw.12306.cn/otn/leftTicket/submitOrderRequest'
         form_data = {
             'secretStr': urllib.parse.unquote(secret_str),
             'train_date': self.conf.train_date,
@@ -169,16 +172,16 @@ class ChinaRailway:
             'query_to_station_name': self.conf.to_station,
             'undefined': ''
         }
-        resp = self.session.post(url, data=form_data).json()
+        resp = self.session.post(self.urls.submitOrderRequest, data=form_data).json()
         if resp.get('data') == 'N':
             return True
         else:
-            self.logger.warning('submit ×', resp)
+            self.logger.warning('submit ×')
+            self.logger.warning(resp)
             return False
 
     def _check_order(self, seat_type):
         self._get_passenger()
-        url = 'https://kyfw.12306.cn/otn/confirmPassenger/checkOrderInfo'
         form_data = {
             'cancel_flag': 2,
             'bed_level_order_num': '000000000000000000000000000000',
@@ -191,17 +194,16 @@ class ChinaRailway:
             'REPEAT_SUBMIT_TOKEN': self._repeat_submit_token
         }
 
-        resp = self.session.post(url, data=form_data).json()
+        resp = self.session.post(self.urls.checkOrderInfo, data=form_data).json()
         if resp['data']['submitStatus']:
-            # print(resp['data'])
             return True
         else:
-            self.logger.warning('check ×', resp)
+            self.logger.warning('check ×')
+            self.logger.warning(resp)
             return False
 
     def _init_dc(self):
-        url = 'https://kyfw.12306.cn/otn/confirmPassenger/initDc'
-        resp = self.session.post(url, data={'_json_att': ''})
+        resp = self.session.post(self.urls.initDc, data={'_json_att': ''})
         html = etree.HTML(resp.content)
         cdata = html.xpath('//script[1]/text()')[0]
         repeat_submit_token = cdata.split(';\n var ')[1].split(' = ')[1].strip("'")
@@ -213,7 +215,6 @@ class ChinaRailway:
         self._order_request_dto = order_request_dto
 
     def _get_queue_count(self, seat_type):
-        url = 'https://kyfw.12306.cn/otn/confirmPassenger/getQueueCount'
         format_train_date = time.strftime(
             '%a %d %b %Y %H:%M:%S GMT+0800 (中国标准时间)', time.strptime(self.conf.train_date, '%Y-%m-%d')
         )
@@ -231,18 +232,15 @@ class ChinaRailway:
             '_json_att': '',
             'REPEAT_SUBMIT_TOKEN': self._repeat_submit_token,
         }
-        resp = self.session.post(url, data=form_data).json()
-        if resp['status']:
-            # print('余票%s张' % resp['data']['ticket'])
+        resp = self.session.post(self.urls.getQueueCount, data=form_data).json()
+        if int(resp['data']['ticket']) > 0:
             return True
         else:
-            self.logger.warning('queue ×', resp)
+            self.logger.warning('queue ×')
+            self.logger.warning(resp)
             return False
 
     def _confirm_single_for_queue(self, seat_type):
-        """
-        """
-        url = 'https://kyfw.12306.cn/otn/confirmPassenger/confirmSingleForQueue'
         form_data = {
             'passengerTicketStr': seat_type + ',' + self._passenger_ticket_str,
             'oldPassengerStr': self._old_passenger_str,
@@ -259,12 +257,17 @@ class ChinaRailway:
             '_json_att': '',
             'REPEAT_SUBMIT_TOKEN': self._repeat_submit_token,
         }
-        resp = self.session.post(url, data=form_data).json()
+        resp = self.session.post(self.urls.confirmSingleForQueue, data=form_data).json()
         if resp['data']['submitStatus']:
             return True
         else:
-            self.logger.warning('confirm ×', resp)
+            self.logger.warning('confirm ×')
+            self.logger.warning(resp)
             return False
+
+    def _query_order(self):
+        resp = self.session.post(self.urls.queryOrderWaitTime, data={'tourFlag': 'dc'}).json()
+        # {"validateMessagesShowId":"_validatorMessage","status":true,"httpstatus":200,"data":{"queueWaitTime":0,"queueWaitCount":0,"queueRequestId":6584385718456211304,"queueCount":0,"tourFlag":"dc","status":8},"messages":[],"validateMessages":{}}
 
     def order(self, ticket):
         if self._submit_order(ticket['secret_str']):
@@ -276,11 +279,22 @@ class ChinaRailway:
                         self.logger.info('请从浏览器打开<https://kyfw.12306.cn/otn/view/train_order.html>,'
                                          '登录查看排队情况'
                                          )
+                        self.sms()
+                        return True
+        self.logger.warning('提交订单 ×')
+        return False
 
     def sms(self):
         """
-        通知
+        微信通知
+        配置方法: http://sc.ftqq.com/3.version
         """
+        url = 'https://sc.ftqq.com/SCU63343T9a6f2e55bf7effcf2351b669af3dfc2e5d956d4f73d75.send'
+        params = {'text': '恭喜，抢到票了！',
+                  'desp': '\n\n>>> 请登录12306查看\n\n'
+                  }
+        _ = requests.get(url, params=params)
+        self.logger.info('微信推送 √')
 
     def refresh(self):
         """
@@ -294,8 +308,10 @@ class ChinaRailway:
         while True:
             ticket = self.query()
             if ticket:
-                self.order(ticket)
-                break
+                if self.order(ticket):
+                    break
+                else:
+                    self.logger.info('继续查询')
             else:
                 now = time.time()
                 if now - clock > 60:
