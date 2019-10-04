@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 from web import ChinaRailway
+from requests.exceptions import ConnectionError
+import traceback
 
 
 def run():
@@ -9,4 +11,12 @@ def run():
 
 
 if __name__ == '__main__':
-    run()
+    while True:
+        try:
+            run()
+            break
+        except ConnectionError:
+            traceback.print_exc()
+            continue
+        except Exception:
+            raise

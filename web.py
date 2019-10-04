@@ -14,7 +14,7 @@ import settings
 import chrome
 from captcha.image import CaptchaImage
 from stations import station_codes
-from logger import get_logger
+from log import get_logger
 
 
 class ChinaRailway:
@@ -58,6 +58,9 @@ class ChinaRailway:
         if response['result_code'] == '4':
             self.logger.info('验证码 √')
             return answer
+        elif response['result_code'] == -4:
+            self.logger.warning(response['result_message'])
+            exit(12)
         else:
             self.logger.warning('验证码 ×')
             self.logger.warning(response)
@@ -317,7 +320,7 @@ class ChinaRailway:
                 if now - clock > 60:
                     self.logger.info('正在持续查询')
                     clock = now
-                # time.sleep(0.1)
+                time.sleep(0.1)
 
     def book(self, start_time):
         """
