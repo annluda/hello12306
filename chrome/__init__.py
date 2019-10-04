@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import os
-import sys
 import time
 from selenium import webdriver
 
@@ -11,6 +10,7 @@ def get_cookies(cls):
     """
     _file_path = os.path.dirname(__file__)
     driver_path = os.path.abspath(os.path.join(_file_path, 'chromedriver'))
+
     driver = webdriver.Chrome(executable_path=driver_path)
     driver.get('https://www.12306.cn/index/index.html')
 
@@ -22,12 +22,14 @@ def get_cookies(cls):
         cookies_num = len(driver.get_cookies())
         if time.clock() > 10:
             cls.logger.warning('获取cookies超时 ×')
-            sys.exit()
+            exit(2)
 
     cookies = []
     for c in driver.get_cookies():
         if c.get('name') in ['RAIL_DEVICEID', 'RAIL_EXPIRATION']:
             cookies.append(c)
+
+    driver.close()
 
     cls.logger.info('获取cookies √')
     return cookies
