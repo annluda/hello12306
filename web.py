@@ -270,7 +270,6 @@ class ChinaRailway:
 
     def _query_order(self):
         resp = self.session.post(self.urls.queryOrderWaitTime, data={'tourFlag': 'dc'}).json()
-        # {"validateMessagesShowId":"_validatorMessage","status":true,"httpstatus":200,"data":{"queueWaitTime":0,"queueWaitCount":0,"queueRequestId":6584385718456211304,"queueCount":0,"tourFlag":"dc","status":8},"messages":[],"validateMessages":{}}
 
     def order(self, ticket):
         if self._submit_order(ticket['secret_str']):
@@ -293,9 +292,7 @@ class ChinaRailway:
         配置方法: http://sc.ftqq.com/3.version
         """
         url = 'https://sc.ftqq.com/SCU63343T9a6f2e55bf7effcf2351b669af3dfc2e5d956d4f73d75.send'
-        params = {'text': '恭喜，抢到票了！',
-                  'desp': '\n\n>>> 请登录12306查看\n\n'
-                  }
+        params = {'text': '恭恭恭恭恭恭恭恭恭恭喜，抢到票了！'}
         _ = requests.get(url, params=params)
         self.logger.info('微信推送 √')
 
@@ -313,8 +310,6 @@ class ChinaRailway:
             if ticket:
                 if self.order(ticket):
                     break
-                else:
-                    self.logger.info('继续查询')
             else:
                 now = time.time()
                 if now - clock > 60:
@@ -322,23 +317,19 @@ class ChinaRailway:
                     clock = now
                 time.sleep(0.1)
 
-    def book(self, start_time):
+    def book(self):
         """
         预约，开售自动抢
-        :param start_time: 开售时间，格式：2019-08-08 12:12
-        :return:
         """
-        _start_time = time.mktime(time.strptime(start_time, '%Y-%m-%d  %H:%M'))
+        _start_time = time.mktime(time.strptime(self.conf.begin_sale_time, '%Y-%m-%d  %H:%M'))
         now = time.time()
 
         if now > _start_time:
-            print('开售时间%s已过，进入刷票模式' % _start_time)
-            self.refresh()
+            self.logger.warn('开售时间%s已过，进入刷票模式' % _start_time)
+        else:
+            while now < _start_time - 5:
+                now = time.time()
+            for sec in range(1, 3):
+                self.logger.info('开售倒计时%ss' % sec)
 
-        while now < _start_time:
-            now = time.time()
-
-        while '':
-            self.query()
-
-        return
+        self.refresh()
